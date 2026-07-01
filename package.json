@@ -1,0 +1,16 @@
+{
+  "name": "dashboard-proxy",
+  "version": "1.0.0",
+  "description": "Proxy exclusivo del Dashboard de Mantenimiento (Grupo Oroño) — lectura de Zammad, solo conteos.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "compression": "^1.7.4",
+    "express": "^4.19.2"
+  }
+}
