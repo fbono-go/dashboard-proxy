@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Mantenimiento — Grupo Oroño</title>
+<style>
+/* =========================================================================
+   TOKENS DE COLOR (adaptables claro/oscuro)
+   Nada hardcodeado: todo componente lee de estas variables.
+   ========================================================================= */
+:root{
+  --surface-0:#f4f6f9;   /* fondo de página */
+  --surface-1:#ffffff;   /* paneles */
+  --surface-2:#eceff4;   /* anidados / tracks */
+  --border:#d9dfe7;
+  --text:#1a2230;
+  --text-secondary:#4a5568;
+  --text-muted:#8a94a3;
+  --zone-red:#e53935;
+  --zone-amber:#fb8c00;
+  --zone-green:#43a047;
+  --gauge-track:#dde3ea;
+  --accent:#1976d2;
+  --shadow:0 1px 3px rgba(20,30,50,.08);
+  --stale:#e0a020;       /* indicador de dato viejo */
+}
+[data-theme="dark"]{
+  --surface-0:#0d1117;
+  --surface-1:#161b22;
+  --surface-2:#1f2630;
+  --border:#2b3340;
+  --text:#e6edf3;
+  --text-secondary:#9aa7b4;
+  --text-muted:#6b7684;
+  --zone-red:#f04747;
+  --zone-amber:#f5a623;
+  --zone-green:#4caf50;
+  --gauge-track:#2b3340;
+  --accent:#4a9eff;
+  --shadow:0 1px 3px rgba(0,0,0,.35);
+  --stale:#f0c040;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{width:100%;height:100%;overflow:hidden;}
+body{
+  background:var(--surface-0);
+  color:var(--text);
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  transition:background .3s,color .3s;
+}
+
+/* =========================================================================
+   LAYOUT 16:9 — llena todo el viewport (en la TV 4K kiosk = pantalla completa)
+   ========================================================================= */
+#dash{
+  width:100vw;height:100vh;
+  padding:1.1vw;
+  display:flex;flex-direction:column;gap:1vw;
+}
+
+/* ---- Header (barra slim: reloj izq · clima der) ---- */
+#header{display:flex;flex:0 0 8.5%;}
+.panel{
+  background:var(--surface-1);
+  border:1px solid var(--border);
+  border-radius:.7vw;
+  box-shadow:var(--shadow);
+}
+#topbar{flex:1;display:flex;align-items:center;justify-content:space-between;padding:0 1.8vw;position:relative;}
+#clock{font-size:3vw;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.02em;line-height:1;}
+#weather-inline{display:flex;align-items:center;gap:1.1vw;}
+#weather-inline .wx-icon{font-size:2.6vw;line-height:1;}
+#weather-inline .wx-temp{font-size:2.6vw;font-weight:700;line-height:1;}
+#weather-inline .wx-cond{font-size:1.1vw;color:var(--text-secondary);max-width:16vw;}
+.storm-alert{
+  background:var(--zone-amber);color:#1a1400;
+  font-size:.85vw;font-weight:700;
+  padding:.3vw .7vw;border-radius:.4vw;margin-right:.4vw;
+  display:none;align-items:center;gap:.3vw;
+}
+.storm-alert.on{display:flex;align-items:center;animation:pulse 2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+/* ---- Cuerpo ---- */
+#body{flex:1;display:flex;gap:1vw;min-height:0;}
+#calendar{flex:1;min-width:0;display:flex;flex-direction:row;overflow:hidden;}
+#tasks{flex:0 0 24%;display:flex;flex-direction:row;overflow:hidden;}
+/* Título vertical sobre el borde izquierdo (no gasta altura) */
+.v-title{
+  flex:0 0 2.2vw;display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+  padding:.9vw 0;background:var(--surface-2);border-right:1px solid var(--border);
+  border-radius:.7vw 0 0 .7vw;
+}
+.v-title .vt-text{writing-mode:vertical-rl;transform:rotate(180deg);font-size:1.15vw;font-weight:600;letter-spacing:.06em;white-space:nowrap;}
+.v-title .fresh{writing-mode:vertical-rl;transform:rotate(180deg);font-size:.62vw;font-weight:500;color:var(--text-muted);white-space:nowrap;}
+.v-title .fresh.stale{color:var(--stale);}
+
+/* Calendario: gutter de horas + 4 columnas de día */
+#cal-grid{flex:1;min-width:0;display:grid;grid-template-columns:2.6vw repeat(4,1fr);overflow:hidden;}
+.day-col{border-left:1px solid var(--border);position:relative;overflow:hidden;}
+.day-col:first-of-type{border-left:none;}
+.day-name{
+  position:absolute;top:0;left:0;right:0;height:2vw;z-index:5;
+  background:var(--surface-2);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  font-size:.9vw;font-weight:600;gap:.4vw;
+}
+.day-name.today{color:var(--accent);}
+.day-name .dot{width:.5vw;height:.5vw;border-radius:50%;background:var(--accent);}
+.hour-gutter{position:relative;}
+.gutter-body{position:absolute;top:2vw;left:0;right:0;bottom:0;}
+.hour-label{
+  position:absolute;right:.3vw;font-size:.68vw;color:var(--text-muted);
+  transform:translateY(-50%);
+}
+.hour-line{position:absolute;left:0;right:0;border-top:1px solid var(--border);opacity:.5;}
+.events-area{position:absolute;top:2vw;left:0;right:0;bottom:0;}
+.event{
+  position:absolute;left:3%;right:3%;
+  border-radius:.35vw;padding:.2vw .45vw;overflow:hidden;
+  font-size:.72vw;line-height:1.15;color:#fff;
+  box-shadow:var(--shadow);
+}
+.event .ev-time{font-weight:700;opacity:.9;}
+.event .ev-title{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* Tareas (Google Tasks) */
+#task-list{flex:1;min-width:0;overflow:hidden;padding:.7vw;display:flex;flex-direction:column;gap:.55vw;}
+.task{
+  background:var(--surface-2);border:1px solid var(--border);
+  border-radius:.5vw;padding:.55vw .7vw;position:relative;overflow:hidden;
+  flex:0 0 auto;
+}
+.task .t-title{font-size:.92vw;font-weight:600;position:relative;z-index:3;}
+.task .t-due{font-size:.74vw;color:var(--text-secondary);margin-top:.15vw;position:relative;z-index:3;}
+/* estados */
+.task.soon{border-left:.3vw solid var(--text-muted);}
+.task.overdue{border-left:.3vw solid var(--zone-red);}
+.task.overdue .t-due{color:var(--zone-red);font-weight:600;}
+.task.done{opacity:.6;}
+.task.done .t-title{text-decoration:line-through;color:var(--zone-green);}
+/* vence hoy = ardiendo */
+.task.fire{background:linear-gradient(180deg,#241813 0%,#1e0e05 45%,#160600 100%);border:1px solid #ff6b00;animation:fire-glow 2.6s ease-in-out infinite;}
+.task.fire .t-title{color:#FFE0A0;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.7);}
+.task.fire .t-due{color:#FFB040;text-shadow:0 1px 3px rgba(0,0,0,.9);}
+.task.fire canvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:1;opacity:.62;pointer-events:none;}
+@keyframes fire-glow{
+  0%,100%{box-shadow:0 0 8px 2px #ff6b0077, inset 0 0 12px #ff4d0033;}
+  50%{box-shadow:0 0 14px 4px #ff8c0099, inset 0 0 18px #ff4d0044;}
+}
+.more-tag{font-size:.78vw;color:var(--text-muted);text-align:center;padding:.3vw;}
+
+/* ---- Franja de gauges ---- */
+#gauges{
+  flex:0 0 auto;                       /* se ajusta al contenido → el calendario gana el resto */
+  background:var(--surface-1);border:1px solid var(--border);
+  border-radius:.7vw;box-shadow:var(--shadow);
+  padding:.5vw 1vw;
+  display:flex;gap:.8vw;align-items:center;
+}
+.gauge-card{
+  flex:1;min-width:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.1vw;
+}
+.gauge-wrap{position:relative;width:100%;max-width:6vw;}
+.gauge-svg{width:100%;height:auto;display:block;}
+.gauge-value{
+  position:absolute;top:52%;left:0;right:0;transform:translateY(-50%);
+  text-align:center;font-size:1.5vw;font-weight:800;font-variant-numeric:tabular-nums;
+}
+.gauge-name{font-size:.78vw;font-weight:600;text-align:center;line-height:1;}
+.gauge-name small{font-size:.66vw;line-height:1;}
+.gauge-badge{
+  font-size:.62vw;font-weight:600;padding:.1vw .45vw;border-radius:.35vw;
+  display:flex;align-items:center;gap:.3vw;
+}
+.gauge-badge.zero{background:color-mix(in srgb,var(--zone-green) 18%,transparent);color:var(--zone-green);}
+.gauge-badge.some{background:color-mix(in srgb,var(--zone-red) 18%,transparent);color:var(--zone-red);}
+
+/* ---- Barra de estado / controles ---- */
+#statusbar{
+  position:fixed;bottom:.6vw;left:1.1vw;
+  display:flex;align-items:center;gap:.6vw;
+  font-size:.72vw;color:var(--text-muted);z-index:50;
+}
+.dot-status{width:.6vw;height:.6vw;border-radius:50%;background:var(--zone-green);}
+.dot-status.warn{background:var(--stale);}
+.dot-status.err{background:var(--zone-red);}
+#controls{position:fixed;bottom:.6vw;right:1.1vw;display:flex;gap:.5vw;z-index:50;}
+.ctl-btn{
+  background:var(--surface-1);border:1px solid var(--border);color:var(--text-secondary);
+  border-radius:.4vw;padding:.35vw .7vw;font-size:.8vw;cursor:pointer;
+}
+.ctl-btn:hover{color:var(--text);border-color:var(--accent);}
+</style>
+</head>
+<body data-theme="dark">
+
+<div id="dash">
+  <!-- HEADER (barra slim: reloj + clima) -->
+  <div id="header">
+    <div id="topbar" class="panel">
+      <div id="clock">--:--</div>
+      <div id="weather-inline">
+        <div class="storm-alert" id="storm"><span>⚠</span><span>Tormenta</span></div>
+        <span class="wx-icon" id="wx-icon">—</span>
+        <span class="wx-temp" id="wx-temp">--°</span>
+        <span class="wx-cond" id="wx-cond">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUERPO -->
+  <div id="body">
+    <div id="calendar" class="panel">
+      <div class="v-title">
+        <span class="vt-text">Calendario</span>
+        <span class="fresh" id="fresh-calendar">—</span>
+      </div>
+      <div id="cal-grid"></div>
+    </div>
+    <div id="tasks" class="panel">
+      <div class="v-title">
+        <span class="vt-text">Tareas</span>
+        <span class="fresh" id="fresh-tasks">—</span>
+      </div>
+      <div id="task-list"></div>
+    </div>
+  </div>
+
+  <!-- GAUGES -->
+  <div id="gauges"></div>
+</div>
+
+<div id="statusbar">
+  <span class="dot-status" id="health-dot"></span>
+  <span id="health-text">Iniciando…</span>
+</div>
+<div id="controls">
+  <button class="ctl-btn" id="theme-btn">☀ / 🌙</button>
+  <button class="ctl-btn" id="config-btn" title="Abrir configuración">⚙ Config</button>
+</div>
+
+<script>
+/* =========================================================================
+   CONFIG — todo lo ajustable en un solo lugar.
+   En la fase funcional, buena parte de esto viene de /config del proxy.
+   ========================================================================= */
+const CONFIG = {
+  // 'mock' = todo con datos de ejemplo (funciona sin conexión).
+  // 'real' = usa el proxy para las fuentes marcadas en `live` de abajo.
+  mode:'real',
+  // Autodetecta: si el dashboard se sirve desde el proxy (http/https) usa el mismo
+  // origen; si se abre como archivo local, cae a la URL absoluta del proxy.
+  proxyBase: (location.protocol==='file:') ? 'https://dashboard-proxy-rx5w.onrender.com' : location.origin,
+  // Referente de este dashboard (sale de la URL ?ref=321). El proxy usa su perfil.
+  ref: new URLSearchParams(location.search).get('ref') || '',
+  // Qué fuentes ya tienen endpoint real.
+  live:{ tickets:true, derivar:true, calendar:false, tasks:false, weather:false },
+  // Selección que hoy está fija acá; en la fase /config sale de la pantalla + localStorage.
+  selection:{
+    oficiales:[67,66,68,64,65],  // owner_id de los oficiales a mostrar
+    institucionOrg:13,           // institución del gauge "Tickets totales" (13 = ICR)
+    derivarRef:321,              // referente del gauge "A derivar" (321 = Franco Bono)
+    derivarOrg:13,               // institución del gauge "A derivar"
+    days:30
+  },
+  fetchTimeoutMs:15000,                         // corta promesas colgadas (arranque en frío de Render)
+  // Intervalos de refresco escalonados por fuente (ms)
+  intervals:{ tickets:120000, derivar:120000, tasks:180000, calendar:600000, weather:600000 },
+  // Escalas de gauge (configurables; en fase config salen por institución)
+  scale:{ oficiales:150, icr:400, derivar:20 },
+  // Breakpoints de zona proporcionales (se recalculan sobre cualquier escala)
+  zoneBreaks:{ red:0.527, amber:0.66 },  // <52.7% rojo, <66% amber, resto verde
+  calendar:{ startHour:6, endHour:22 },
+  maxTasks:10,
+  watchdog:{ checkMs:60000, staleFactor:3, hardReloadMs:1800000 } // recarga dura a los 30 min muertos
+};
+
+/* =========================================================================
+   MOCK DATA — refleja la estructura real (data.json + tickets Zammad).
+   Cuando pasemos a mode:'real', estos fetchers apuntan al proxy y el resto
+   del dashboard no cambia.
+   ========================================================================= */
+const MOCK = {
+  // Oficiales seleccionados para mostrar (en real: localStorage dashboard_oficiales_sel)
+  oficiales:[
+    { owner_id:67, nombre:'Elio Molina',        cerrados:112, vencidosHoy:0 },
+    { owner_id:66, nombre:'Carlos Carranza',    cerrados:87,  vencidosHoy:2 },
+    { owner_id:68, nombre:'Fausto Casco',       cerrados:64,  vencidosHoy:1 },
+    { owner_id:64, nombre:'Agustín Gentiletti', cerrados:103, vencidosHoy:0 },
+    { owner_id:65, nombre:'Damián Benítez',     cerrados:95,  vencidosHoy:3 }
+  ],
+  icr:{ nombre:'Ticket total ICR', total:384, vencidosHoy:5 },       // acumulado, escala propia
+  derivar:{ nombre:'Tickets a derivar', ref:'Franco Bono', inst:'ICR', count:6 },
+  weather:{ tempC:16, cond:'Parcialmente nublado', icon:'⛅', storm:true },
+  // Eventos de calendario (start/end en horas decimales 24h)
+  calendar:[
+    { day:0, start:8,   end:9.5, title:'Ronda consultorios Oroño', color:'#1976d2' },
+    { day:0, start:11,  end:12,  title:'Mantenimiento grupo electrógeno', color:'#7b1fa2' },
+    { day:0, start:15,  end:17,  title:'Revisión aires internación', color:'#00897b' },
+    { day:1, start:6.5, end:8,   title:'Guardia matutina SP', color:'#c62828' },
+    { day:1, start:13,  end:14,  title:'Reunión referentes', color:'#f57c00' },
+    { day:2, start:9,   end:11,  title:'Inspección tableros SN', color:'#1976d2' },
+    { day:2, start:18,  end:19.5,title:'Corte programado agua', color:'#c62828' },
+    { day:3, start:10,  end:12,  title:'Service ascensores DMO', color:'#00897b' }
+  ],
+  // Tareas (Google Tasks). estado se deriva de la fecha en render.
+  tasks:[
+    { title:'Cambiar filtros UTA piso 3', due:'today' },
+    { title:'Pedir repuestos bomba presurizadora', due:'today' },
+    { title:'Firmar remito proveedor gases', due:'overdue' },
+    { title:'Actualizar planos red eléctrica', due:'soon' },
+    { title:'Calibrar termostatos quirófano', due:'soon' },
+    { title:'Revisar luces emergencia ala B', due:'soon' },
+    { title:'Cerrar OT #4821', due:'done' },
+    { title:'Coordinar visita técnica caldera', due:'soon' }
+  ]
+};
+
+/* =========================================================================
+   CAPA DE DATOS — fetch con timeout (AbortController) + fetchers por fuente.
+   ========================================================================= */
+async function fetchWithTimeout(url, ms){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), ms);
+  try{
+    const r = await fetch(url,{signal:ctrl.signal});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+// ¿esta fuente debe usar datos reales? (modo real global + endpoint ya disponible)
+const useReal = name => CONFIG.mode==='real' && CONFIG.live[name];
+const delay = ms => new Promise(res=>setTimeout(res,ms)); // latencia simulada en mock
+const refQS = (extra='') => `?ref=${encodeURIComponent(CONFIG.ref)}${extra}`; // el proxy usa el perfil del referente
+
+const sources = {
+  // Gauges de institución + oficiales. El proxy arma todo desde el perfil del referente.
+  async tickets(){
+    if(!useReal('tickets')){ await delay(300); return { oficiales:MOCK.oficiales, icr:MOCK.icr }; }
+    const d = await fetchWithTimeout(`${CONFIG.proxyBase}/api/tickets${refQS()}`, CONFIG.fetchTimeoutMs);
+    return {
+      icr:{ nombre:d.institucion.nombre, total:d.institucion.total, vencidosHoy:d.institucion.vencidos_hoy },
+      oficiales:(d.oficiales||[]).map(o=>({ owner_id:o.owner_id, nombre:o.nombre, cerrados:o.cerrados, vencidosHoy:o.vencidos_hoy }))
+    };
+  },
+  // Gauge "Tickets a derivar".
+  async derivar(){
+    if(!useReal('derivar')){ await delay(200); return MOCK.derivar; }
+    const d = await fetchWithTimeout(`${CONFIG.proxyBase}/api/derivar${refQS()}`, CONFIG.fetchTimeoutMs);
+    return { nombre:'Tickets a derivar', ref:d.referente, inst:d.institucion, count:d.count };
+  },
+  async calendar(){
+    if(!useReal('calendar')){ await delay(250); return MOCK.calendar; }
+    return fetchWithTimeout(`${CONFIG.proxyBase}/api/calendario${refQS()}`, CONFIG.fetchTimeoutMs);
+  },
+  async tasks(){
+    if(!useReal('tasks')){ await delay(250); return MOCK.tasks; }
+    return fetchWithTimeout(`${CONFIG.proxyBase}/api/tareas${refQS()}`, CONFIG.fetchTimeoutMs);
+  },
+  async weather(){
+    if(!useReal('weather')){ await delay(200); return MOCK.weather; }
+    return fetchWithTimeout(`${CONFIG.proxyBase}/api/clima${refQS()}`, CONFIG.fetchTimeoutMs);
+  }
+};
+
+/* =========================================================================
+   ROBUSTEZ — poller con backoff + stale-while-error + watchdog central.
+   Cada módulo es independiente: si uno falla, no tumba a los demás.
+   ========================================================================= */
+const registry = {}; // name -> { lastOk, interval, restart, timer, backoff }
+
+function createPoller({ name, intervalMs, fetchFn, renderFn }){
+  const state = { lastOk:0, interval:intervalMs, timer:null, backoff:0, lastData:null };
+  registry[name] = state;
+
+  async function tick(){
+    try{
+      const data = await fetchFn();
+      state.lastData = data;      // guarda último dato bueno
+      state.lastOk = Date.now();
+      state.backoff = 0;          // resetea backoff
+      renderFn(data);
+      schedule(state.interval);   // ritmo normal
+    }catch(err){
+      console.warn(`[${name}] error:`, err.message);
+      // stale-while-error: NO borramos lo que hay en pantalla; reintentamos con backoff
+      state.backoff = Math.min(state.backoff ? state.backoff*2 : 30000, 300000); // 30s → 5min techo
+      schedule(state.backoff);
+    }
+    updateHealth();
+  }
+  function schedule(ms){ clearTimeout(state.timer); state.timer = setTimeout(tick, ms); }
+  state.restart = ()=>{ console.info(`[${name}] watchdog restart`); schedule(0); };
+
+  tick(); // primer disparo inmediato
+  return state;
+}
+
+// Watchdog: vigila que ningún módulo quede congelado
+function startWatchdog(){
+  setInterval(()=>{
+    const now = Date.now();
+    let worst = 0;
+    for(const [name,s] of Object.entries(registry)){
+      const age = now - s.lastOk;
+      if(s.lastOk && age > s.interval*CONFIG.watchdog.staleFactor){
+        s.restart(); // auto-sanación del módulo
+      }
+      worst = Math.max(worst, s.lastOk ? age : 0);
+    }
+    // último recurso: si algo lleva demasiado muerto, recargar toda la página
+    if(worst > CONFIG.watchdog.hardReloadMs){
+      console.error('watchdog: hard reload'); location.reload();
+    }
+  }, CONFIG.watchdog.checkMs);
+}
+
+/* =========================================================================
+   INDICADORES DE FRESCURA Y SALUD
+   ========================================================================= */
+function fmtAgo(ms){
+  const s = Math.floor(ms/1000);
+  if(s<60) return 'hace '+s+'s';
+  const m = Math.floor(s/60);
+  if(m<60) return 'hace '+m+' min';
+  return 'hace '+Math.floor(m/60)+' h';
+}
+function refreshFreshLabels(){
+  const now = Date.now();
+  [['calendar','fresh-calendar'],['tasks','fresh-tasks']].forEach(([src,elId])=>{
+    const s = registry[src], el = document.getElementById(elId);
+    if(!s||!el) return;
+    if(!s.lastOk){ el.textContent='—'; return; }
+    const age = now - s.lastOk;
+    el.textContent = fmtAgo(age);
+    el.classList.toggle('stale', age > s.interval*CONFIG.watchdog.staleFactor);
+  });
+}
+function updateHealth(){
+  const now = Date.now();
+  const dot = document.getElementById('health-dot');
+  const txt = document.getElementById('health-text');
+  let stale=0, dead=0;
+  for(const s of Object.values(registry)){
+    if(!s.lastOk){ dead++; continue; }
+    if(now - s.lastOk > s.interval*CONFIG.watchdog.staleFactor) stale++;
+  }
+  if(dead){ dot.className='dot-status err'; txt.textContent='Reintentando conexión…'; }
+  else if(stale){ dot.className='dot-status warn'; txt.textContent='Algunos datos desactualizados'; }
+  else { dot.className='dot-status'; txt.textContent='Datos al día · modo '+CONFIG.mode; }
+}
+
+/* =========================================================================
+   GAUGES (SVG) — anillo de referencia por zonas + barra de progreso gruesa.
+   ========================================================================= */
+const GA = { cx:60, cy:60, r:46, START:135, SWEEP:270 };
+function pt(cx,cy,r,deg){ const a=deg*Math.PI/180; return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; }
+function arcPath(cx,cy,r,a0,a1){
+  const [x0,y0]=pt(cx,cy,r,a0), [x1,y1]=pt(cx,cy,r,a1);
+  const large=(a1-a0)>180?1:0;
+  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+const valToAngle = (v,scale)=> GA.START + Math.max(0,Math.min(v/scale,1))*GA.SWEEP;
+
+// Zona de un valor. inverted=true → poco es bueno (verde), mucho es malo (rojo).
+function zoneColorFor(v,scale,inverted){
+  const f = v/scale, b=CONFIG.zoneBreaks;
+  if(!inverted){
+    if(f < b.red)   return 'var(--zone-red)';
+    if(f < b.amber) return 'var(--zone-amber)';
+    return 'var(--zone-green)';
+  }else{
+    if(f < (1-b.amber)) return 'var(--zone-green)';
+    if(f < (1-b.red))   return 'var(--zone-amber)';
+    return 'var(--zone-red)';
+  }
+}
+
+// Devuelve el HTML de una card de gauge
+function gaugeCardHTML({ value, scale, name, badge, inverted=false, display }){
+  const {cx,cy,r,START,SWEEP}=GA;
+  const b=CONFIG.zoneBreaks;
+  // Segmentos de referencia (finos). Para inverted, invertimos el orden de colores.
+  const stops = inverted
+    ? [[0,1-b.amber,'var(--zone-green)'],[1-b.amber,1-b.red,'var(--zone-amber)'],[1-b.red,1,'var(--zone-red)']]
+    : [[0,b.red,'var(--zone-red)'],[b.red,b.amber,'var(--zone-amber)'],[b.amber,1,'var(--zone-green)']];
+  const refArcs = stops.map(([f0,f1,c])=>{
+    const a0=START+f0*SWEEP, a1=START+f1*SWEEP;
+    return `<path d="${arcPath(cx,cy,r,a0,a1)}" stroke="${c}" stroke-width="4" fill="none" stroke-linecap="butt" opacity=".55"/>`;
+  }).join('');
+  // Track gris (barra gruesa de fondo)
+  const track = `<path d="${arcPath(cx,cy,r-9,START,START+SWEEP)}" stroke="var(--gauge-track)" stroke-width="11" fill="none" stroke-linecap="round"/>`;
+  // Progreso grueso hasta el valor, color de zona
+  const ang = valToAngle(value,scale);
+  const prog = value>0
+    ? `<path d="${arcPath(cx,cy,r-9,START,ang)}" stroke="${zoneColorFor(value,scale,inverted)}" stroke-width="11" fill="none" stroke-linecap="round"/>`
+    : '';
+  const shown = (display!==undefined)?display:value;
+  const badgeCls = badge.count>0 ? 'some':'zero';
+  const badgeHtml = `<div class="gauge-badge ${badgeCls}"><span>${badge.label}</span><b>${badge.count}</b></div>`;
+  return `
+    <div class="gauge-card">
+      <div class="gauge-wrap">
+        <svg class="gauge-svg" viewBox="6 4 108 100">
+          ${track}${refArcs}${prog}
+        </svg>
+        <div class="gauge-value">${shown}</div>
+      </div>
+      <div class="gauge-name">${name}</div>
+      ${badgeHtml}
+    </div>`;
+}
+
+/* =========================================================================
+   RENDERERS
+   ========================================================================= */
+// Render único de la franja. Orden fijo: Totales → A derivar → Oficiales.
+// Ambos pollers (tickets y derivar) llaman acá; cada uno pinta con lo último
+// disponible del otro, sin duplicar ni pisarse.
+function renderGauges(){
+  const cont = document.getElementById('gauges');
+  const t = registry.tickets && registry.tickets.lastData;
+  const d = registry.derivar && registry.derivar.lastData;
+  if(!t && !d) return;
+  const cards = [];
+  // 1) Ticket totales (acumulado, escala propia configurable)
+  if(t){
+    cards.push(gaugeCardHTML({
+      value:t.icr.total, scale:CONFIG.scale.icr, name:t.icr.nombre,
+      badge:{label:'Vencidos hoy', count:t.icr.vencidosHoy}
+    }));
+  }
+  // 2) Tickets a derivar (pocos = bueno → inverted)
+  if(d){
+    cards.push(gaugeCardHTML({
+      value:d.count, scale:CONFIG.scale.derivar,
+      name:`${d.nombre}<br><small style="color:var(--text-muted);font-weight:500">${d.ref} · ${d.inst}</small>`,
+      badge:{label:'Nuevos', count:d.count}, inverted:true
+    }));
+  }
+  // 3) Oficiales (cantidad dinámica)
+  if(t){
+    t.oficiales.forEach(o=>{
+      cards.push(gaugeCardHTML({
+        value:o.cerrados, scale:CONFIG.scale.oficiales, name:o.nombre,
+        badge:{label:'Vencidos hoy', count:o.vencidosHoy}
+      }));
+    });
+  }
+  cont.innerHTML = cards.join('');
+}
+
+function renderWeather(w){
+  document.getElementById('wx-temp').textContent = w.tempC+'°';
+  document.getElementById('wx-cond').textContent = w.cond;
+  document.getElementById('wx-icon').textContent = w.icon;
+  document.getElementById('storm').classList.toggle('on', !!w.storm);
+}
+
+function renderCalendar(events){
+  const grid = document.getElementById('cal-grid');
+  const {startHour,endHour} = CONFIG.calendar;
+  const hours = endHour - startHour;
+  const days = buildDays();
+  const pct = h => ((h-startHour)/hours)*100;
+  // Gutter de horas: cuerpo absoluto que arranca bajo el header de día (top:2vw)
+  let html = '<div class="hour-gutter"><div class="gutter-body">';
+  for(let h=startHour; h<=endHour; h++){
+    html += `<div class="hour-label" style="top:${pct(h)}%">${String(h).padStart(2,'0')}</div>`;
+  }
+  html += '</div></div>';
+  // Columnas de día
+  days.forEach((d,di)=>{
+    html += `<div class="day-col">`;
+    html += `<div class="day-name ${d.isToday?'today':''}">${d.isToday?'<span class="dot"></span>':''}${d.label}</div>`;
+    html += `<div class="events-area">`;
+    // líneas de hora (mismo sistema de % que los eventos → alineadas con el gutter)
+    for(let h=startHour; h<=endHour; h++){
+      html += `<div class="hour-line" style="top:${pct(h)}%"></div>`;
+    }
+    events.filter(e=>e.day===di).forEach(e=>{
+      const s=Math.max(e.start,startHour), en=Math.min(e.end,endHour);
+      if(en<=startHour||s>=endHour) return;
+      const top=pct(s), hgt=((en-s)/hours)*100;
+      const t=`${String(Math.floor(e.start)).padStart(2,'0')}:${String(Math.round((e.start%1)*60)).padStart(2,'0')}`;
+      html += `<div class="event" style="top:${top}%;height:${hgt}%;background:${e.color}">
+                 <div class="ev-time">${t}</div><div class="ev-title">${e.title}</div></div>`;
+    });
+    html += `</div></div>`;
+  });
+  grid.innerHTML = html;
+}
+
+function renderTasks(tasks){
+  const list = document.getElementById('task-list');
+  stopAllFires();                 // limpia canvases previos (evita fugas)
+  const shown = tasks.slice(0, CONFIG.maxTasks);
+  const extra = tasks.length - shown.length;
+  const dueLabel = { today:'Vence hoy', overdue:'Vencida', soon:'Próxima', done:'Completada' };
+  let html='';
+  shown.forEach((t,i)=>{
+    const cls = t.due==='today'?'fire': t.due==='overdue'?'overdue': t.due==='done'?'done':'soon';
+    html += `<div class="task ${cls}" data-fire="${t.due==='today'?1:0}">
+               <div class="t-title">${t.title}</div>
+               <div class="t-due">${dueLabel[t.due]||''}</div></div>`;
+  });
+  if(extra>0) html += `<div class="more-tag">+${extra} más</div>`;
+  list.innerHTML = html;
+  // enciende fuego en las que vencen hoy (canvas independiente por tarea)
+  list.querySelectorAll('.task[data-fire="1"]').forEach(startFire);
+}
+
+/* =========================================================================
+   MOTOR DE FUEGO — canvas independiente por tarea, scheduler compartido (perf).
+   Cada tarea tiene SU canvas (no se comparte el efecto visual). Un solo rAF
+   actualiza todas las instancias para no cargar la TV con N loops.
+   ========================================================================= */
+const fires = [];
+const FIRE_PALETTE = (()=>{ // gradiente calor
+  const p=[];
+  for(let i=0;i<256;i++){
+    let r,g,b;
+    if(i<64){r=i*4;g=0;b=0;}
+    else if(i<128){r=255;g=(i-64)*4;b=0;}
+    else if(i<192){r=255;g=255;b=(i-128)*4;}
+    else{r=255;g=255;b=255;}
+    p.push([r,g,b]);
+  }
+  return p;
+})();
+function startFire(taskEl){
+  const canvas=document.createElement('canvas');
+  taskEl.appendChild(canvas);
+  const W=Math.max(24,Math.floor(taskEl.offsetWidth/5));
+  const H=Math.max(16,Math.floor(taskEl.offsetHeight/5));
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  const img=ctx.createImageData(W,H);
+  const heat=new Uint8Array(W*H);
+  fires.push({canvas,ctx,img,heat,W,H});
+}
+function stopAllFires(){ fires.length=0; } // canvases se van con innerHTML
+let fireRAF=null, fireLastT=0;
+const FIRE_FPS=22;                 // más lento = movimiento más calmo
+const FIRE_FRAME_MS=1000/FIRE_FPS;
+function fireLoop(t){
+  fireRAF=requestAnimationFrame(fireLoop);
+  if(t - fireLastT < FIRE_FRAME_MS) return;  // throttle
+  fireLastT=t;
+  for(const f of fires){
+    const {W,H,heat,img,ctx}=f;
+    // Sembrar fila inferior: focos calientes definidos + gaps oscuros → lenguas separadas
+    for(let x=0;x<W;x++){
+      heat[(H-1)*W+x] = Math.random()<0.28 ? 210+Math.random()*45 : 15+Math.random()*35;
+    }
+    // Propagar hacia arriba con sesgo VERTICAL (poca difusión lateral) → lenguas altas y delgadas
+    for(let y=0;y<H-1;y++){
+      for(let x=0;x<W;x++){
+        const below=(y+1)*W+x;
+        const l=heat[below-(x>0?1:0)], r=heat[below+(x<W-1?1:0)], c=heat[below], d=heat[Math.min(y+2,H-1)*W+x];
+        let v=(l + r + c*3 + d*2)/7 - (1.0+Math.random()*1.9);
+        heat[y*W+x]=v<0?0:v;
+      }
+    }
+    // Pintar
+    const data=img.data;
+    for(let i=0;i<heat.length;i++){
+      const [r,g,b]=FIRE_PALETTE[heat[i]|0];
+      const o=i*4; data[o]=r; data[o+1]=g; data[o+2]=b; data[o+3]=heat[i];
+    }
+    ctx.putImageData(img,0,0);
+  }
+}
+// pausa el fuego si la pestaña no está visible (ahorra CPU en la TV)
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){ cancelAnimationFrame(fireRAF); fireRAF=null; }
+  else if(!fireRAF){ fireRAF=requestAnimationFrame(fireLoop); }
+});
+
+/* =========================================================================
+   RELOJ Y FECHAS
+   ========================================================================= */
+const DIAS=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+const DIAS_C=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function buildDays(){
+  const out=[]; const base=new Date();
+  for(let i=0;i<4;i++){
+    const d=new Date(base); d.setDate(base.getDate()+i);
+    out.push({ isToday:i===0, label:`${DIAS_C[d.getDay()]} ${d.getDate()}` });
+  }
+  return out;
+}
+function tickClock(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  document.getElementById('clock').textContent=`${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* =========================================================================
+   TEMA
+   ========================================================================= */
+function initTheme(){
+  const saved=localStorage.getItem('dashboard_theme');
+  if(saved) document.body.dataset.theme=saved;
+  document.getElementById('theme-btn').addEventListener('click',()=>{
+    const next=document.body.dataset.theme==='dark'?'light':'dark';
+    document.body.dataset.theme=next;
+    localStorage.setItem('dashboard_theme',next);
+  });
+}
+
+/* =========================================================================
+   CONFIG REMOTA — trae la selección/escala/calendario desde el proxy (/api/config)
+   ========================================================================= */
+async function loadRemoteConfig(){
+  if(CONFIG.mode!=='real') return;                 // en mock usamos los valores locales
+  try{
+    const c = await fetchWithTimeout(`${CONFIG.proxyBase}/api/config?ref=${encodeURIComponent(CONFIG.ref)}`, CONFIG.fetchTimeoutMs);
+    if(c.ref) CONFIG.ref = c.ref;                   // si no venía ref, el proxy devolvió el default
+    if(c.selection){
+      const s = c.selection;
+      if(s.escala_institucion) CONFIG.scale.icr = s.escala_institucion;
+      if(s.escala_oficiales)   CONFIG.scale.oficiales = s.escala_oficiales;
+      if(s.escala_derivar)     CONFIG.scale.derivar = s.escala_derivar;
+    }
+    if(c.calendar){
+      if(typeof c.calendar.startHour==='number') CONFIG.calendar.startHour = c.calendar.startHour;
+      if(typeof c.calendar.endHour==='number')   CONFIG.calendar.endHour = c.calendar.endHour;
+    }
+    // Encender módulos reales según lo que ya esté configurado para ESTE referente.
+    if(c.flags){
+      CONFIG.live.weather  = !!c.flags.openweather_key_set;
+      CONFIG.live.calendar = !!c.flags.google_connected;
+      CONFIG.live.tasks    = !!c.flags.google_connected;
+    }
+  }catch(e){ console.warn('[config] no se pudo cargar config remota, uso valores locales:', e.message); }
+}
+
+/* =========================================================================
+   ARRANQUE
+   ========================================================================= */
+async function boot(){
+  initTheme();
+  tickClock(); setInterval(tickClock,1000);
+
+  await loadRemoteConfig();   // primero la config, después arrancan los pollers
+
+  createPoller({ name:'weather',  intervalMs:CONFIG.intervals.weather,  fetchFn:sources.weather,  renderFn:renderWeather });
+  createPoller({ name:'calendar', intervalMs:CONFIG.intervals.calendar, fetchFn:sources.calendar, renderFn:renderCalendar });
+  createPoller({ name:'tasks',    intervalMs:CONFIG.intervals.tasks,    fetchFn:sources.tasks,    renderFn:renderTasks });
+  createPoller({ name:'tickets',  intervalMs:CONFIG.intervals.tickets,  fetchFn:sources.tickets,  renderFn:renderGauges });
+  createPoller({ name:'derivar',  intervalMs:CONFIG.intervals.derivar,  fetchFn:sources.derivar,  renderFn:renderGauges });
+
+  fireRAF=requestAnimationFrame(fireLoop);
+  startWatchdog();
+  setInterval(refreshFreshLabels,10000);
+  setInterval(updateHealth,5000);
+
+  document.getElementById('config-btn').addEventListener('click',()=>{
+    // Navegación en la MISMA pestaña: funciona en Chrome kiosk (a diferencia de _blank).
+    // El botón "Volver" de /config regresa al dashboard.
+    window.location.href = `${CONFIG.proxyBase}/config?ref=${encodeURIComponent(CONFIG.ref)}`;
+  });
+  // re-render responsivo del fuego al cambiar tamaño (raro en TV fija, pero prolijo)
+  let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{
+    if(registry.tasks&&registry.tasks.lastData) renderTasks(registry.tasks.lastData);
+  },400); });
+}
+boot();
+</script>
+</body>
+</html>

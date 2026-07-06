@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Configuración · Dashboard Mantenimiento</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--panel2:#1f2630;--line:#2b3340;--txt:#e6edf3;--muted:#8b949e;--accent:#4a9eff;--green:#43a047;--red:#f04747;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;padding:28px 16px 90px;}
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{font-size:23px;margin-bottom:2px;}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:22px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px;}
+  .card h2{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;}
+  label{display:block;font-size:13px;margin:11px 0 5px;}
+  .hint{font-size:12px;color:var(--muted);font-weight:400;}
+  input,select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:var(--txt);font-size:14px;font-family:inherit;}
+  input:focus,select:focus{outline:none;border-color:var(--accent);}
+  .row{display:flex;gap:12px;flex-wrap:wrap;}
+  .row>div{flex:1;min-width:130px;}
+  .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:6px;}
+  .chk{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;cursor:pointer;font-size:13px;}
+  .chk input{width:16px;height:16px;accent-color:var(--accent);}
+  .bar{position:fixed;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--line);padding:13px 16px;display:flex;justify-content:center;gap:12px;align-items:center;flex-wrap:wrap;}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px 20px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn.sec{background:var(--panel2);border:1px solid var(--line);color:var(--txt);}
+  .btn.g{background:#fff;color:#1a1a1a;display:flex;align-items:center;gap:9px;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .msg{font-size:14px;padding:10px 14px;border-radius:8px;display:none;margin-bottom:16px;}
+  .msg.ok{display:block;background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green);border:1px solid var(--green);}
+  .msg.err{display:block;background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red);border:1px solid var(--red);}
+  .status{display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:6px 12px;border-radius:20px;background:var(--panel2);border:1px solid var(--line);}
+  .dot{width:9px;height:9px;border-radius:50%;}
+  .dot.on{background:var(--green);} .dot.off{background:var(--muted);}
+  .refsel{display:flex;align-items:center;gap:10px;margin-bottom:20px;background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;}
+  .refsel label{margin:0;white-space:nowrap;font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Configuración del Dashboard</h1>
+  <div class="sub">Grupo Oroño · Sector de Mantenimiento</div>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="refsel">
+    <label>Referente:</label>
+    <select id="refSelector" onchange="cambiarRef()"></select>
+    <span class="hint">Cada referente tiene su propia configuración y su cuenta de Google.</span>
+  </div>
+
+  <div class="card">
+    <h2>Google Calendar + Tasks — de este referente</h2>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+      <span class="status"><span class="dot off" id="g-dot"></span><span id="g-status">Sin conectar</span></span>
+      <a class="btn g" id="g-connect" href="#"><svg width="17" height="17" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.4 5.4 2.6 13.2l7.8 6.1C12.2 13.7 17.6 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9.1h12.4c-.5 2.9-2.1 5.3-4.6 6.9l7.1 5.5c4.2-3.9 6.6-9.6 6.6-16.9z"/><path fill="#FBBC05" d="M10.4 28.3c-.5-1.4-.7-2.9-.7-4.3s.3-2.9.7-4.3l-7.8-6.1C1 16.7 0 20.2 0 24s1 7.3 2.6 10.4l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.2 0 11.5-2.1 15.3-5.6l-7.1-5.5c-2 1.3-4.5 2.1-8.2 2.1-6.4 0-11.8-4.2-13.6-9.9l-7.8 6.1C6.4 42.6 14.6 48 24 48z"/></svg><span id="g-connect-txt">Conectar con Google</span></a>
+      <button class="btn sec" id="g-disconnect" onclick="desconectarGoogle()" style="display:none;">Desconectar</button>
+    </div>
+    <div class="hint" id="g-appwarn" style="margin-top:10px;display:none;color:var(--red);">⚠ Primero cargá las credenciales de la app de Google (más abajo) y guardá.</div>
+    <div class="row" style="margin-top:12px;">
+      <div><label>Calendar ID <span class="hint">(o dejá "primary")</span></label><input type="text" id="g_calendar_id" placeholder="primary"></div>
+      <div><label>Task List</label><input type="text" id="g_tasklist" placeholder="@default"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Gauges — datos de este referente</h2>
+    <div class="row">
+      <div><label>Institución · "Tickets totales"</label><select id="institucionOrg"></select></div>
+      <div><label>Período (días)</label><input type="number" id="days" min="1" max="365"></div>
+    </div>
+    <label style="margin-top:14px;">Oficiales a mostrar</label>
+    <div class="checks" id="oficialesChecks"></div>
+  </div>
+
+  <div class="card">
+    <h2>Escalas de los gauges</h2>
+    <div class="row">
+      <div><label>Institución</label><input type="number" id="escala_institucion" min="1"></div>
+      <div><label>Oficiales</label><input type="number" id="escala_oficiales" min="1"></div>
+      <div><label>A derivar</label><input type="number" id="escala_derivar" min="1"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Clima y calendario de este referente</h2>
+    <div class="row">
+      <div><label>Latitud</label><input type="number" id="weather_lat" step="0.0001"></div>
+      <div><label>Longitud</label><input type="number" id="weather_lon" step="0.0001"></div>
+      <div><label>Etiqueta</label><input type="text" id="weather_label"></div>
+    </div>
+    <div class="row" style="margin-top:4px;">
+      <div><label>Calendario · hora inicio</label><input type="number" id="cal_start" min="0" max="23"></div>
+      <div><label>Calendario · hora fin</label><input type="number" id="cal_end" min="1" max="24"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Credenciales compartidas <span class="hint">(afectan a todos los referentes)</span></h2>
+    <label>Zammad — URL</label>
+    <input type="text" id="zammad_url" placeholder="https://help.gored.com.ar">
+    <label>Zammad — Token <span class="hint">— vacío = sin cambios</span></label>
+    <input type="password" id="zammad_token" placeholder="(sin cambios)">
+    <label>OpenWeather — API Key <span class="hint">— vacío = sin cambios</span></label>
+    <input type="password" id="openweather_key" placeholder="(sin cambios)">
+    <label>Google App — Client ID</label>
+    <input type="text" id="g_client_id" placeholder="xxxx.apps.googleusercontent.com">
+    <label>Google App — Client Secret <span class="hint">— vacío = sin cambios</span></label>
+    <input type="password" id="g_client_secret" placeholder="(sin cambios)">
+  </div>
+
+  <div class="card">
+    <h2>Cambiar contraseña de admin</h2>
+    <div class="row">
+      <div><label>Actual</label><input type="password" id="pw_actual"></div>
+      <div><label>Nueva</label><input type="password" id="pw_nueva"></div>
+      <div style="display:flex;align-items:flex-end;"><button class="btn sec" onclick="cambiarPassword()">Cambiar</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="bar">
+  <label style="margin:0;color:var(--muted);">Contraseña admin:</label>
+  <input type="password" id="admin_pw" style="max-width:200px;" placeholder="requerida para guardar">
+  <a class="btn sec" id="verBtn" href="/">Ver dashboard</a>
+  <button class="btn" id="saveBtn" onclick="guardar()">Guardar cambios</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let ref = params.get('ref') || '';
+let opciones = { instituciones:[], referentes:[], oficiales:[] };
+
+function msg(t, ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); window.scrollTo({top:0,behavior:'smooth'}); setTimeout(()=>m.className='msg',6000); }
+function opt(sel, items, val){ sel.innerHTML = items.map(i=>`<option value="${i.id}" ${String(i.id)===String(val)?'selected':''}>${i.nombre}${i.abrev&&i.abrev!==i.nombre?' ('+i.abrev+')':''}</option>`).join(''); }
+
+function cambiarRef(){ location.href = '/config?ref=' + $('refSelector').value; }
+
+async function cargar(){
+  try{
+    const ops = await fetch('/api/opciones').then(r=>r.json());
+    opciones = ops;
+    if(!ref && ops.referentes[0]) ref = String(ops.referentes[0].id);
+    // selector de referente
+    $('refSelector').innerHTML = ops.referentes.map(r=>`<option value="${r.id}" ${String(r.id)===String(ref)?'selected':''}>${r.nombre}</option>`).join('');
+
+    const cfg = await fetch('/api/config?ref='+encodeURIComponent(ref)).then(r=>r.json());
+    const s=cfg.selection||{}, w=cfg.weather||{}, c=cfg.calendar||{}, g=cfg.google||{}, f=cfg.flags||{};
+    $('verBtn').href = '/?ref='+encodeURIComponent(ref);
+
+    // Google del referente
+    const conn = !!f.google_connected;
+    $('g-dot').className = 'dot ' + (conn?'on':'off');
+    $('g-status').textContent = conn ? 'Conectado ✓' : 'Sin conectar';
+    $('g-connect-txt').textContent = conn ? 'Reconectar' : 'Conectar con Google';
+    $('g-connect').href = '/auth/google?ref='+encodeURIComponent(ref);
+    $('g-disconnect').style.display = conn ? 'inline-block' : 'none';
+    $('g-appwarn').style.display = f.google_app_set ? 'none' : 'block';
+    $('g_calendar_id').value = g.calendar_id || 'primary';
+    $('g_tasklist').value = g.tasklist || '@default';
+
+    // dropdowns / checks
+    opt($('institucionOrg'), ops.instituciones, s.institucionOrg);
+    const sel = new Set((s.oficiales||[]).map(String));
+    $('oficialesChecks').innerHTML = ops.oficiales.map(o=>`<label class="chk"><input type="checkbox" value="${o.id}" ${sel.has(String(o.id))?'checked':''}>${o.nombre}</label>`).join('');
+
+    $('days').value=s.days??30;
+    $('escala_institucion').value=s.escala_institucion??400;
+    $('escala_oficiales').value=s.escala_oficiales??150;
+    $('escala_derivar').value=s.escala_derivar??20;
+    $('weather_lat').value=w.lat??''; $('weather_lon').value=w.lon??''; $('weather_label').value=w.label??'';
+    $('cal_start').value=c.startHour??6; $('cal_end').value=c.endHour??22;
+
+    // credenciales compartidas
+    if(f.zammad_token_set) $('zammad_token').placeholder='•••••• (ya cargado)';
+    if(f.openweather_key_set) $('openweather_key').placeholder='•••••• (ya cargada)';
+    if(f.google_app_set) $('g_client_secret').placeholder='•••••• (ya cargado)';
+
+    if(params.get('google')==='ok') msg('✓ Google conectado para '+(cfg.referente||'este referente')+'.', true);
+    if(params.get('google')==='error') msg('No se pudo conectar Google. Probá de nuevo.', false);
+  }catch(e){ msg('No se pudo cargar la configuración: '+e.message, false); }
+}
+
+function recolectar(){
+  const oficiales=[...document.querySelectorAll('#oficialesChecks input:checked')].map(c=>parseInt(c.value));
+  const body={
+    selection:{ institucionOrg:parseInt($('institucionOrg').value), derivarOrg:parseInt($('institucionOrg').value), oficiales,
+      days:parseInt($('days').value), escala_institucion:parseInt($('escala_institucion').value),
+      escala_oficiales:parseInt($('escala_oficiales').value), escala_derivar:parseInt($('escala_derivar').value) },
+    weather:{ lat:parseFloat($('weather_lat').value), lon:parseFloat($('weather_lon').value), label:$('weather_label').value.trim() },
+    calendar:{ startHour:parseInt($('cal_start').value), endHour:parseInt($('cal_end').value) },
+    google_calendar_id: $('g_calendar_id').value.trim()||'primary',
+    google_tasklist: $('g_tasklist').value.trim()||'@default'
+  };
+  // compartidos
+  const zu=$('zammad_url').value.trim(); if(zu) body.zammad_url=zu;
+  const zt=$('zammad_token').value.trim(); if(zt) body.zammad_token=zt;
+  const ow=$('openweather_key').value.trim(); if(ow) body.openweather_key=ow;
+  const gc=$('g_client_id').value.trim(); const gs=$('g_client_secret').value.trim();
+  if(gc||gs){ body.google_client={}; if(gc) body.google_client.client_id=gc; if(gs) body.google_client.client_secret=gs; }
+  return body;
+}
+
+async function guardar(){
+  const password=$('admin_pw').value;
+  if(!password){ msg('Ingresá la contraseña de admin para guardar.', false); return; }
+  const body=recolectar(); body.password=password;
+  $('saveBtn').disabled=true;
+  try{
+    const r=await fetch('/api/config?ref='+encodeURIComponent(ref),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error||'Error');
+    msg('✓ Configuración guardada para este referente.', true);
+    $('zammad_token').value='';$('openweather_key').value='';$('g_client_secret').value='';
+  }catch(e){ msg('Error al guardar: '+e.message, false); }
+  finally{ $('saveBtn').disabled=false; }
+}
+
+async function desconectarGoogle(){
+  const password=$('admin_pw').value;
+  if(!password){ msg('Ingresá la contraseña de admin para desconectar.', false); return; }
+  try{
+    const r=await fetch('/auth/google/disconnect?ref='+encodeURIComponent(ref),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error||'Error');
+    msg('Google desconectado.', true); setTimeout(()=>location.reload(),800);
+  }catch(e){ msg('Error: '+e.message, false); }
+}
+
+async function cambiarPassword(){
+  const password=$('pw_actual').value, nueva=$('pw_nueva').value;
+  if(!password||!nueva){ msg('Completá contraseña actual y nueva.', false); return; }
+  try{
+    const r=await fetch('/api/config/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password,nueva})});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error||'Error');
+    msg('✓ Contraseña actualizada.', true); $('pw_actual').value='';$('pw_nueva').value='';
+  }catch(e){ msg('Error: '+e.message, false); }
+}
+
+cargar();
+</script>
+</body>
+</html>
