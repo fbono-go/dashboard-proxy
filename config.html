@@ -30,6 +30,7 @@
   .msg{font-size:14px;padding:10px 14px;border-radius:8px;display:none;margin-bottom:16px;}
   .msg.ok{display:block;background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green);border:1px solid var(--green);}
   .msg.err{display:block;background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red);border:1px solid var(--red);}
+  #avisos div+div{margin-top:8px;}
   .status{display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:6px 12px;border-radius:20px;background:var(--panel2);border:1px solid var(--line);}
   .dot{width:9px;height:9px;border-radius:50%;}
   .dot.on{background:var(--green);} .dot.off{background:var(--muted);}
@@ -81,6 +82,8 @@
   <div class="sub">Grupo Oroño · Sector de Mantenimiento</div>
 
   <div id="msg" class="msg"></div>
+  <!-- Avisos fijos (no se ocultan solos): sin respaldo / referente sin configurar -->
+  <div id="avisos" class="msg"></div>
 
   <div class="refsel">
     <label>Referente:</label>
@@ -233,13 +236,27 @@
 <script>
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-let ref = params.get('ref') || '';
+let ref = String(parseInt(params.get('ref'), 10) || '');   // solo el número: "61x" → "61"
 let opciones = { instituciones:[], referentes:[], oficiales:[] };
 
 function msg(t, ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); window.scrollTo({top:0,behavior:'smooth'}); setTimeout(()=>m.className='msg',6000); }
 function opt(sel, items, val){ sel.innerHTML = items.map(i=>`<option value="${i.id}" ${String(i.id)===String(val)?'selected':''}>${i.nombre}${i.abrev&&i.abrev!==i.nombre?' ('+i.abrev+')':''}</option>`).join(''); }
 
 function cambiarRef(){ location.href = '/config?ref=' + $('refSelector').value; }
+
+// Avisos que tienen que quedar a la vista hasta que se resuelvan.
+function avisos(cfg){
+  const a=[];
+  if(!(cfg.flags||{}).respaldo) a.push('⚠ Sin respaldo: lo que guardes acá se borra cada vez que Render reinicia el servidor. Faltan GITHUB_TOKEN y GITHUB_CONFIG_REPO en Render.');
+  if(cfg.configurado===false) a.push('⚠ Este referente no tiene configuración guardada: su dashboard muestra los valores de fábrica. Elegí institución y oficiales, y guardá.');
+  $('avisos').innerHTML = a.map(t=>`<div>${t}</div>`).join('');
+  $('avisos').className = 'msg' + (a.length ? ' err' : '');
+}
+// Resultado de un guardado: guardado acá ≠ respaldado en GitHub.
+function msgGuardado(d, textoOk){
+  if(d.persistencia_remota) msg(textoOk, true);
+  else msg('⚠ Guardado, pero sin respaldo en GitHub: se pierde en el próximo reinicio del servidor. Revisá GITHUB_TOKEN en Render.', false);
+}
 
 async function cargar(){
   try{
@@ -283,6 +300,7 @@ async function cargar(){
     if(f.google_app_set) $('g_client_secret').placeholder='•••••• (ya cargado)';
 
     cargarHumor(cfg.humor, ops.referentes);
+    avisos(cfg);
 
     if(params.get('google')==='ok') msg('✓ Google conectado para '+(cfg.referente||'este referente')+'.', true);
     if(params.get('google')==='error') msg('No se pudo conectar Google. Probá de nuevo.', false);
@@ -402,7 +420,8 @@ async function guardar(){
   try{
     const r=await fetch('/api/config?ref='+encodeURIComponent(ref),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json(); if(!r.ok) throw new Error(d.error||'Error');
-    msg('✓ Configuración guardada para este referente.', true);
+    msgGuardado(d, '✓ Configuración guardada y respaldada para este referente.');
+    avisos(d.guardado);
     $('zammad_token').value='';$('openweather_key').value='';$('g_client_secret').value='';
   }catch(e){ msg('Error al guardar: '+e.message, false); }
   finally{ $('saveBtn').disabled=false; }
@@ -424,7 +443,7 @@ async function cambiarPassword(){
   try{
     const r=await fetch('/api/config/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password,nueva})});
     const d=await r.json(); if(!r.ok) throw new Error(d.error||'Error');
-    msg('✓ Contraseña actualizada.', true); $('pw_actual').value='';$('pw_nueva').value='';
+    msgGuardado(d, '✓ Contraseña actualizada.'); $('pw_actual').value='';$('pw_nueva').value='';
   }catch(e){ msg('Error: '+e.message, false); }
 }
 

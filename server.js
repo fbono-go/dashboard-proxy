@@ -8,6 +8,7 @@
 //    GET /api/derivar?ref=321&org=13
 //    GET /api/health
 //    POST /api/recargar-data
+//    GET /api/config · POST /api/config  (perfiles por referente, respaldados en GitHub)
 //
 //  Credenciales: NO hardcodeadas. Salen de config.json (que edita /config más
 //  adelante) o de variables de entorno. config.json está en .gitignore.
@@ -26,9 +27,13 @@ app.use(express.json({ limit: '256kb' }));
 // ─────────────────────────────────────────────────────────────────────────────
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 
+// Congela en profundidad: la plantilla de abajo se devuelve tal cual en las
+// lecturas de un referente sin perfil, así que nadie debe poder modificarla.
+const congelar = o => { Object.values(o).forEach(v => { if (v && typeof v === 'object') congelar(v); }); return Object.freeze(o); };
+
 // Plantilla de un PERFIL (uno por referente). Cada referente tiene su institución,
 // sus oficiales, su ubicación de clima y su propia cuenta de Google.
-const PROFILE_DEFAULT = {
+const PROFILE_DEFAULT = congelar({
   selection: {
     oficiales: [],
     institucionOrg: 13,
@@ -44,7 +49,7 @@ const PROFILE_DEFAULT = {
   google_refresh_token: '',      // se completa cuando el referente hace "Conectar con Google"
   google_calendar_id: 'primary',
   google_tasklist: '@default'
-};
+});
 
 // Config COMPARTIDA (no cambia por referente).
 const DEFAULTS = {
@@ -162,9 +167,11 @@ function saveConfig() {
 let CONFIG = loadConfig();
 
 // ── Persistencia remota (repo PRIVADO de GitHub) ─────────────────────────────
-// Render free tier borra config.json en cada redeploy. Para no recargar nada a
-// mano: al guardar, la config se sube a un repo privado; al arrancar, se
-// restaura desde ahí. Se activa con dos variables de entorno en Render:
+// Render (plan gratis) borra config.json en cada deploy, en cada reinicio y cada
+// vez que el servicio se duerme. Sin este respaldo los perfiles se pierden y cada
+// TV vuelve a los valores de fábrica (ICR, sin oficiales). Al guardar, la config
+// se sube a un repo privado; al arrancar, se restaura desde ahí. Se activa con
+// dos variables de entorno en Render:
 //   GITHUB_TOKEN        → token fine-grained con Contents read/write SOLO en ese repo
 //   GITHUB_CONFIG_REPO  → "usuario/repo-privado" (ej: fbono-go/dashboard-config)
 const GH = {
@@ -173,66 +180,108 @@ const GH = {
   branch: process.env.GITHUB_CONFIG_BRANCH || 'main',
   path:   'config.json'
 };
+const GH_TIMEOUT_MS = 15000;              // GitHub colgado no debe trabar el arranque
 const ghOk = () => !!(GH.token && GH.repo);
 const ghUrl = () => `https://api.github.com/repos/${GH.repo}/contents/${GH.path}`;
-const ghHeaders = () => ({
+const ghFetch = (url, opts = {}) => fetch(url, { ...opts, signal: AbortSignal.timeout(GH_TIMEOUT_MS), headers: {
   'Authorization': 'Bearer ' + GH.token,
   'Accept': 'application/vnd.github+json',
-  'User-Agent': 'dashboard-proxy'          // GitHub API lo exige
-});
+  'User-Agent': 'dashboard-proxy',         // GitHub API lo exige
+  ...(opts.headers || {})
+}});
+
+// Estado del respaldo, visible en /api/health para diagnosticar sin entrar a Render.
+const RESPALDO = { al_arrancar: 'pendiente', ultimo_guardado: null };
 
 // Al arrancar: restaurar la última config guardada (si existe).
 async function cargarConfigRemota() {
-  if (!ghOk()) return false;
+  if (!ghOk()) { RESPALDO.al_arrancar = 'desactivado'; return false; }
   try {
-    const r = await fetch(`${ghUrl()}?ref=${GH.branch}`, { headers: ghHeaders() });
-    if (r.status === 404) { console.log('[config-remota] aún no hay config en GitHub'); return false; }
+    const r = await ghFetch(`${ghUrl()}?ref=${GH.branch}`);
+    if (r.status === 404) { RESPALDO.al_arrancar = 'sin respaldo previo'; console.log('[config-remota] aún no hay config en GitHub'); return false; }
     if (!r.ok) throw new Error('GitHub HTTP ' + r.status);
     const d = await r.json();
-    const json = JSON.parse(Buffer.from(d.content, 'base64').toString('utf8'));
-    mergeConfig(CONFIG, json);
+    mergeConfig(CONFIG, JSON.parse(Buffer.from(d.content, 'base64').toString('utf8')));
     aplicarEnv(CONFIG);          // los secretos de Render siempre ganan
-    saveConfig();                // copia local para lecturas sync
+    RESPALDO.al_arrancar = 'ok';
     console.log('[config-remota] restaurada desde GitHub ✓');
     return true;
-  } catch (e) { console.warn('[config-remota] no se pudo cargar:', e.message); return false; }
+  } catch (e) {
+    RESPALDO.al_arrancar = 'error: ' + e.message;
+    console.warn('[config-remota] no se pudo cargar:', e.message);
+    return false;
+  }
 }
 
-// Al guardar: subir la config al repo (necesita el sha actual si el archivo existe).
-async function guardarConfigRemota() {
-  if (!ghOk()) return false;
+// Lo que ya vive en variables de entorno de Render no se sube al repo:
+// cada secreto, en un solo lugar.
+function configParaRespaldo() {
+  const c = JSON.parse(JSON.stringify(CONFIG));
+  if (process.env.ZAMMAD_TOKEN) delete c.zammad_token;
+  if (process.env.OPENWEATHER_KEY) delete c.openweather_key;
+  if (process.env.GOOGLE_CLIENT_SECRET) delete c.google_client.client_secret;
+  return c;
+}
+
+// Sube la config al repo (necesita el sha actual si el archivo ya existe).
+async function subirConfig() {
   try {
     let sha;
-    const g = await fetch(`${ghUrl()}?ref=${GH.branch}`, { headers: ghHeaders() });
+    const g = await ghFetch(`${ghUrl()}?ref=${GH.branch}`);
     if (g.ok) sha = (await g.json()).sha;
+    else if (g.status !== 404) throw new Error('GitHub HTTP ' + g.status);
     const body = {
       message: 'Actualización de configuración del dashboard',
       branch: GH.branch,
-      content: Buffer.from(JSON.stringify(CONFIG, null, 2)).toString('base64')
+      content: Buffer.from(JSON.stringify(configParaRespaldo(), null, 2)).toString('base64')
     };
     if (sha) body.sha = sha;
-    const r = await fetch(ghUrl(), { method: 'PUT', headers: { ...ghHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await ghFetch(ghUrl(), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error('GitHub HTTP ' + r.status);
+    RESPALDO.ultimo_guardado = 'ok ' + new Date().toISOString();
     return true;
-  } catch (e) { console.warn('[config-remota] no se pudo guardar:', e.message); return false; }
+  } catch (e) {
+    RESPALDO.ultimo_guardado = 'error: ' + e.message;
+    console.warn('[config-remota] no se pudo guardar:', e.message);
+    return false;
+  }
 }
 
-// Guardado completo: local (rápido) + remoto (persistente entre redeploys).
+// Los guardados van en fila: dos a la vez leerían el mismo sha y GitHub
+// rechazaría el segundo (409). subirConfig nunca rechaza, así la fila no se corta.
+let colaRespaldo = Promise.resolve(true);
+function guardarConfigRemota() {
+  if (!ghOk()) return Promise.resolve(false);
+  colaRespaldo = colaRespaldo.then(subirConfig);
+  return colaRespaldo;
+}
+
+// Guardado completo: local (rápido) + remoto (persistente entre reinicios).
 async function persistConfig() {
   const local = saveConfig();
   const remoto = await guardarConfigRemota();
   return { local, remoto };
 }
 
-// Devuelve el perfil de un referente; lo crea con defaults si no existe (auto-provisión).
+// Un referente es SIEMPRE su número, en todos los endpoints. Antes /api/tickets
+// y /config usaban el texto del link ("61x") y /api/derivar solo el número (61):
+// con un link con algo de más, cada gauge leía un perfil distinto.
+function normRef(ref) {
+  const n = parseInt(String(Array.isArray(ref) ? ref[0] : (ref ?? '')).trim(), 10);
+  return String(n > 0 ? n : defaultRef());
+}
+// Perfil de un referente para LEER. Si nunca se guardó, devuelve la plantilla de
+// fábrica sin crearlo: un GET (la TV, un link mal escrito) no deja perfiles basura.
 function getProfile(ref) {
-  ref = String(ref || '');
-  if (!ref) ref = String(defaultRef());
-  if (!CONFIG.profiles[ref]) {
-    CONFIG.profiles[ref] = JSON.parse(JSON.stringify(PROFILE_DEFAULT));
-  }
+  return CONFIG.profiles[normRef(ref)] || PROFILE_DEFAULT;
+}
+// Perfil para MODIFICAR (guardar en /config, conectar o desconectar Google).
+function perfilParaEditar(ref) {
+  ref = normRef(ref);
+  if (!CONFIG.profiles[ref]) CONFIG.profiles[ref] = JSON.parse(JSON.stringify(PROFILE_DEFAULT));
   return CONFIG.profiles[ref];
 }
+const perfilGuardado = ref => !!CONFIG.profiles[normRef(ref)];
 // Referente por defecto: el primero de la lista de referentes conocidos.
 function defaultRef() {
   return (REFERENTES[0] && REFERENTES[0].id) || 321;
@@ -366,6 +415,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// Hasta restaurar la config de GitHub, /api y /auth esperan. Si respondieran
+// antes, cada TV recién despertada vería los valores de fábrica (ICR) hasta su
+// próximo refresco. cargarConfigRemota nunca rechaza y corta a los 15 s.
+let configLista = Promise.resolve();
+app.use(['/api', '/auth'], (req, res, next) => { configLista.then(() => next()); });
+
 // ── Helpers de Zammad ────────────────────────────────────────────────────────
 async function zammadSearch(query, perPage) {
   const url = `${CONFIG.zammad_url}/api/v1/tickets/search?query=${encodeURIComponent(query)}&page=1&per_page=${perPage}`;
@@ -476,8 +531,9 @@ app.get('/api/tickets', async (req, res) => {
 // GET /api/derivar?ref=321   (el referente ES el ref; la institución sale de su perfil)
 app.get('/api/derivar', async (req, res) => {
   try {
-    const refId = parseInt(req.query.ref || defaultRef());
-    const prof = getProfile(refId);
+    const ref = normRef(req.query.ref);
+    const refId = parseInt(ref, 10);
+    const prof = getProfile(ref);
     const org = parseInt(req.query.org || (prof.selection && prof.selection.derivarOrg) || prof.selection.institucionOrg);
     if (!refId || !org) return res.status(400).json({ error: 'Faltan parámetros ref y org' });
 
@@ -498,10 +554,12 @@ app.get('/api/derivar', async (req, res) => {
 // ── Configuración ────────────────────────────────────────────────────────────
 // Vista PÚBLICA de un perfil (la que consume el dashboard): sin secrets.
 function configPublica(ref) {
+  ref = normRef(ref);
   const prof = getProfile(ref);
   return {
-    ref: String(ref || defaultRef()),
-    referente: OWNERS[ref] || OWNERS[defaultRef()] || '',
+    ref,
+    referente: OWNERS[ref] || '',
+    configurado: perfilGuardado(ref),      // false = se ven los valores de fábrica
     selection: prof.selection,
     calendar: prof.calendar,
     weather: prof.weather,
@@ -511,7 +569,8 @@ function configPublica(ref) {
       zammad_token_set: !!CONFIG.zammad_token,
       openweather_key_set: !!CONFIG.openweather_key,
       google_app_set: !!(CONFIG.google_client.client_id && CONFIG.google_client.client_secret),
-      google_connected: !!prof.google_refresh_token   // ¿este referente ya conectó su Google?
+      google_connected: !!prof.google_refresh_token,  // ¿este referente ya conectó su Google?
+      respaldo: ghOk()                                // ¿lo guardado sobrevive a un reinicio?
     }
   };
 }
@@ -535,7 +594,7 @@ app.post('/api/config', async (req, res) => {
     return res.status(401).json({ error: 'Contraseña incorrecta' });
   }
   delete body.password;
-  const ref = String(req.query.ref || body.ref || defaultRef());
+  const ref = normRef(req.query.ref || body.ref);
   delete body.ref;
 
   // Campos compartidos (si vienen) van al nivel raíz; el resto, al perfil.
@@ -548,8 +607,7 @@ app.post('/api/config', async (req, res) => {
   // Humor se REEMPLAZA entero (no merge): si se borró un globo, tiene que desaparecer.
   if (body.humor !== undefined) { CONFIG.humor = sanitizarHumor(body.humor); delete body.humor; }
 
-  const prof = getProfile(ref);
-  mergeConfig(prof, body);          // selection/weather/calendar/google_* del perfil
+  mergeConfig(perfilParaEditar(ref), body);   // selection/weather/calendar/google_* del perfil
   const p = await persistConfig();
   res.json({ ok: p.local, persistencia_remota: p.remoto, guardado: configPublica(ref) });
 });
@@ -652,7 +710,7 @@ async function googleAccessToken(prof) {
 // 1) El referente toca "Conectar con Google" → lo mandamos al consentimiento de Google.
 app.get('/auth/google', (req, res) => {
   if (!googleAppOk()) return res.status(400).send('Falta cargar las credenciales de la app de Google en /config (Client ID y Secret).');
-  const ref = String(req.query.ref || defaultRef());
+  const ref = normRef(req.query.ref);
   const params = new URLSearchParams({
     client_id: CONFIG.google_client.client_id,
     redirect_uri: REDIRECT_URI(),
@@ -669,7 +727,7 @@ app.get('/auth/google', (req, res) => {
 app.get('/auth/google/callback', async (req, res) => {
   try {
     const code = req.query.code;
-    const ref = String(req.query.state || defaultRef());
+    const ref = normRef(req.query.state);
     if (!code) throw new Error('Falta el code de Google');
     const body = new URLSearchParams({
       code,
@@ -685,8 +743,7 @@ app.get('/auth/google/callback', async (req, res) => {
     if (!r.ok || !d.refresh_token) {
       throw new Error('Google no devolvió refresh_token (' + (d.error || r.status) + '). Probá de nuevo desde Config.');
     }
-    const prof = getProfile(ref);
-    prof.google_refresh_token = d.refresh_token;
+    perfilParaEditar(ref).google_refresh_token = d.refresh_token;
     await persistConfig();     // la conexión de Google es lo que más duele perder en un redeploy
     // Volvemos a la config del referente con un aviso de éxito.
     res.redirect(`/config?ref=${encodeURIComponent(ref)}&google=ok`);
@@ -700,9 +757,11 @@ app.get('/auth/google/callback', async (req, res) => {
 app.post('/auth/google/disconnect', async (req, res) => {
   const { password } = req.body || {};
   if (password !== CONFIG.admin_password) return res.status(401).json({ error: 'Contraseña incorrecta' });
-  const ref = String(req.query.ref || req.body.ref || defaultRef());
-  getProfile(ref).google_refresh_token = '';
-  await persistConfig();
+  const ref = normRef(req.query.ref || (req.body || {}).ref);
+  if (perfilGuardado(ref)) {             // sin perfil no hay nada que desconectar
+    CONFIG.profiles[ref].google_refresh_token = '';
+    await persistConfig();
+  }
   res.json({ ok: true });
 });
 
@@ -935,7 +994,8 @@ app.get('/api/health', (req, res) => {
     ok: true,
     zammad_url: CONFIG.zammad_url,
     token_cargado: !!CONFIG.zammad_token,
-    persistencia_github: ghOk(),          // ¿la config sobrevive redeploys?
+    respaldo: { activo: ghOk(), ...RESPALDO },        // ¿la config sobrevive a reinicios?
+    perfiles: Object.keys(CONFIG.profiles),           // referentes con configuración guardada
     owners: Object.keys(OWNERS).length,
     instituciones: Object.keys(INSTITUCIONES).length,
     ts: new Date().toISOString()
@@ -1001,15 +1061,16 @@ app.get('/terms', (req, res) => {
 const PORT = process.env.PORT || 3000;
 if (require.main === module) {
   const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  configLista = cargarConfigRemota();   // arranca ya; /api y /auth esperan a que termine
   app.listen(PORT, async () => {
     console.log('dashboard-proxy escuchando en puerto ' + PORT);
-    await cargarConfigRemota();   // restaura la config guardada (sobrevive redeploys)
+    await configLista;
     if (!CONFIG.zammad_token) console.warn('⚠  Sin token de Zammad. Cargalo en config.json o env ZAMMAD_TOKEN.');
-    if (!ghOk()) console.warn('⚠  Sin persistencia remota: la config se pierde en cada redeploy. Configurá GITHUB_TOKEN y GITHUB_CONFIG_REPO.');
+    if (!ghOk()) console.warn('⚠  Sin persistencia remota: la config se pierde en cada reinicio. Configurá GITHUB_TOKEN y GITHUB_CONFIG_REPO.');
     await cargarDataJson();
     setInterval(cargarDataJson, 30 * 60 * 1000);
     setInterval(() => { fetch(SELF_URL).catch(() => {}); }, 14 * 60 * 1000); // keep-alive Render
   });
 }
 
-module.exports = { app, _internals: { loadConfig, aplicarData, cargarDataJson, saveConfig, persistConfig, cargarConfigRemota, guardarConfigRemota, countVencidos, searchAllCount, getProfile, defaultRef, get CONFIG(){return CONFIG;}, set CONFIG(v){CONFIG=v;}, get OWNERS(){return OWNERS;}, get INSTITUCIONES(){return INSTITUCIONES;}, get REFERENTES(){return REFERENTES;}, get OFICIALES(){return OFICIALES;} } };
+module.exports = { app, _internals: { loadConfig, aplicarData, cargarDataJson, saveConfig, persistConfig, cargarConfigRemota, guardarConfigRemota, countVencidos, searchAllCount, getProfile, perfilParaEditar, normRef, defaultRef, RESPALDO, get CONFIG(){return CONFIG;}, set CONFIG(v){CONFIG=v;}, get OWNERS(){return OWNERS;}, get INSTITUCIONES(){return INSTITUCIONES;}, get REFERENTES(){return REFERENTES;}, get OFICIALES(){return OFICIALES;} } };

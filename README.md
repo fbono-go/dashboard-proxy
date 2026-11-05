@@ -51,15 +51,24 @@ El referente entra a **su** `/config?ref=<ID>` y toca **"Conectar con Google"**.
 
 ## Puesta en marcha
 
-1. Deploy del proxy en Render. Variables de entorno: `ZAMMAD_TOKEN`, y opcionalmente `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OPENWEATHER_KEY`.
+1. Deploy del proxy en Render. Variables de entorno: `ZAMMAD_TOKEN`, `GITHUB_TOKEN` y `GITHUB_CONFIG_REPO` (respaldo, ver abajo), y opcionalmente `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OPENWEATHER_KEY`.
 2. En `/config`: cargar credenciales compartidas (Zammad, OpenWeather, app de Google).
 3. Por cada referente: `/config?ref=<ID>` → elegir institución, oficiales, escalas, ubicación → guardar. Y el referente toca "Conectar con Google".
 
 ---
 
-## Nota sobre persistencia (Render free tier)
+## Persistencia: respaldo en GitHub (obligatorio en Render free)
 
-`config.json` se borra en cada **redeploy de código** (no en reinicios). Para que los secretos compartidos sobrevivan siempre, cargalos como variables de entorno. Los perfiles por referente conviene reconfigurarlos tras un redeploy (o migrar a almacenamiento externo más adelante).
+Render borra `config.json` en **cada deploy, cada reinicio y cada vez que el servicio se duerme**, y puede reiniciarlo en cualquier momento. Sin respaldo, los perfiles se pierden y cada TV vuelve a los valores de fábrica (ICR, sin oficiales).
+
+Con el respaldo activo, cada guardado se sube a un repo **privado** y al arrancar se restaura desde ahí (las rutas `/api` esperan a que termine). Se activa con dos variables de entorno en Render:
+
+- `GITHUB_TOKEN` — token *fine-grained* con permiso **Contents: Read and write** solo sobre ese repo.
+- `GITHUB_CONFIG_REPO` — `fbono-go/dashboard-config`.
+
+Los secretos que ya están en variables de entorno (`ZAMMAD_TOKEN`, `OPENWEATHER_KEY`, `GOOGLE_CLIENT_SECRET`) no se suben al repo.
+
+Para chequearlo: `/api/health` → `respaldo.activo` tiene que ser `true`, y `perfiles` lista los referentes con configuración guardada. Si falta algo, `/config` lo avisa en rojo.
 
 ---
 
