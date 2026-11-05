@@ -1104,9 +1104,9 @@ function renderPreventivo(d){
   ajustarPreventivo();
 }
 
-/* El panel tiene tope de media pantalla. Primero en tamaño normal; si no entra,
-   una línea por empresa; si tampoco, la lista rueda como las tareas (nadie queda
-   oculto). La leyenda queda fija abajo. */
+/* El panel tiene tope de media pantalla. Las barras mantienen siempre su tamaño;
+   si no entran, la lista rueda como las tareas (nadie queda oculto). La leyenda
+   queda fija abajo. */
 function ajustarPreventivo(){
   const el = document.getElementById('prev-list');
   const vista = el.querySelector('.pv-vista'); if(!vista) return;
@@ -1115,10 +1115,7 @@ function ajustarPreventivo(){
   vista.classList.remove('rueda');
   track.querySelectorAll('[aria-hidden]').forEach(c=>c.remove());
   el.classList.remove('compacto');
-  const cabe = () => vista.scrollHeight <= vista.clientHeight + 1;
-  if(cabe()) return;
-  el.classList.add('compacto');
-  if(cabe()) return;
+  if(vista.scrollHeight <= vista.clientHeight + 1) return;
   armarRueda(vista, track.innerHTML, track.children.length);
 }
 
